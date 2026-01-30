@@ -4,6 +4,14 @@ import stripe
 import datetime
 import time
 
+# --- KONFIGURACJA BIZNESOWA ---
+
+# 1. TU WKLEJ KLUCZ TAJNY ZE STRIPE (Secret Key - zaczyna się od sk_test_...)
+STRIPE_SECRET_KEY = "sk_test_51SvI3pF4cgtAkW4Kl7EU9vD3f9RInde6kLP11kB66aCBQNRZuWtdelOPMKjBqBczaeYbBQhRkLNs9kptZTlxYmoJ00auxm37XP" 
+
+# 2. TU WKLEJ LINK DO PŁATNOŚCI (Ten za 9.99 PLN)
+LINK_DO_PLATNOSCI = "https://buy.stripe.com/test_6oU3cv4Ee00Jfic9yq0VO00"
+
 # --- KONFIGURACJA API ---
 try:
     API_KEY = st.secrets["OPENAI_API_KEY"]
