@@ -3,13 +3,16 @@ from openai import OpenAI
 import datetime
 import os
 
+# --- KONFIGURACJA BIZNESOWA ---
+# Tu wpisz swój link do płatności ze Stripe (na razie testowy)
+LINK_DO_PLATNOSCI = "https://buy.stripe.com/test_..." 
+# Kod, który klient otrzyma po wpłacie (możesz go zmieniać)
+TAJNY_KOD = "KONTRA2026"
+
 # --- KONFIGURACJA BEZPIECZEŃSTWA (SECRETS) ---
-# Teraz kod jest bezpieczny. Program szuka klucza w bezpiecznym schowku serwera.
-# Jeśli go nie znajdzie (np. testujesz lokalnie), spróbuje użyć zmiennej środowiskowej.
 try:
     API_KEY = st.secrets["OPENAI_API_KEY"]
 except:
-    # Tylko do testów lokalnych - wklej tu klucz, ale NIE WRZUCAJ TEGO NA GITHUB!
     API_KEY = ""
 
 client = OpenAI(api_key=API_KEY)
@@ -161,19 +164,33 @@ with st.expander("4. Załączniki (Opcjonalne)", expanded=False):
 
 st.markdown("---")
 
-# --- ZGODY PRAWNE (RODO / REGULAMIN) ---
-# To jest Twoja legalna tarcza nr 2
-zgoda_rodo = st.checkbox("✅ Akceptuję Regulamin i wyrażam zgodę na przetwarzanie danych w celu wygenerowania pisma.")
+# --- SEKCJA PŁATNOŚCI (PAYWALL) ---
+st.subheader("💳 Finalizacja i Płatność")
+
+col_info, col_pay = st.columns([2, 1])
+with col_info:
+    st.info("Aby wygenerować pismo, wymagany jest **Kod Dostępu**. \n\nOtrzymasz go natychmiast po opłaceniu usługi (BLIK / Przelew).")
+    kod_uzytkownika = st.text_input("Wpisz otrzymany kod dostępu:", type="password", placeholder="Wpisz kod tutaj...")
+
+with col_pay:
+    st.write("Koszt usługi: **29.00 PLN**")
+    st.link_button("👉 KUP KOD (BLIK)", LINK_DO_PLATNOSCI, type="primary", use_container_width=True)
+
+st.markdown("---")
+
+# --- ZGODY PRAWNE ---
+zgoda_rodo = st.checkbox("✅ Akceptuję Regulamin i wyrażam zgodę na przetwarzanie danych.")
 
 # --- PRZYCISK GENEROWANIA ---
-# Przycisk jest aktywny TYLKO jeśli zaznaczono zgodę (disabled=not zgoda_rodo)
 if st.button("GENERUJ DOKUMENT PDF (PODGLĄD)", type="primary", use_container_width=True, disabled=not zgoda_rodo):
     
-    if not imie or not telefon or not ulica or not kod_pocztowy or not miasto:
+    # 1. SPRAWDZENIE KODU
+    if kod_uzytkownika != TAJNY_KOD:
+        st.error("⛔ BŁĄD: Nieprawidłowy kod dostępu! Musisz kupić kod, aby wygenerować pismo.")
+    elif not imie or not telefon or not ulica or not kod_pocztowy or not miasto:
         st.error("❌ Uzupełnij wszystkie pola adresowe (Miejscowość, Ulica, Kod)!")
     else:
         pelny_adres_string = f"{ulica}, {kod_pocztowy} {miasto}"
-        
         dane_formularza = {
             "miasto": miasto,
             "dzisiejsza_data": str(datetime.date.today()),
@@ -190,29 +207,19 @@ if st.button("GENERUJ DOKUMENT PDF (PODGLĄD)", type="primary", use_container_wi
         
         with st.spinner('Prawnik AI przygotowuje dokument...'):
             wynik = generuj_pelne_pismo(dane_formularza, strategia)
-            
-            st.success("✅ Dokument gotowy!")
+            st.success("✅ Kod poprawny! Dokument gotowy!")
             
             st.subheader("1. Treść Pisma:")
             st.text_area("Tekst do skopiowania:", value=wynik, height=500)
             
             st.subheader("2. Załączniki do druku:")
-            if plik_paragon:
-                st.image(plik_paragon, caption="Załącznik 1: Dowód zakupu", width=300)
+            if plik_paragon: st.image(plik_paragon, caption="Dowód zakupu", width=300)
             if pliki_uszkodzen:
-                st.write("Dokumentacja fotograficzna:")
                 cols = st.columns(len(pliki_uszkodzen))
                 for idx, plik in enumerate(pliki_uszkodzen):
-                    with cols[idx]:
-                        st.image(plik, caption=f"Uszkodzenie {idx+1}", use_container_width=True)
+                    with cols[idx]: st.image(plik, caption=f"Foto {idx+1}", use_container_width=True)
 
             st.info("ℹ️ Instrukcja: Skopiuj treść pisma do Worda, a zdjęcia wydrukuj i dołącz do koperty.")
 
-# --- STOPKA / NOTA PRAWNA ---
 st.markdown("---")
-st.caption("""
-⚠️ **NOTA PRAWNA (Disclaimer):**
-System KONTRA wykorzystuje sztuczną inteligencję (AI) do generowania wzorów pism. Aplikacja nie świadczy pomocy prawnej.
-Dane wprowadzane do formularza są przetwarzane wyłącznie w czasie rzeczywistym w celu wygenerowania treści i nie są trwale zapisywane przez administratora systemu.
-Korzystając z narzędzia, akceptujesz, że ostateczna weryfikacja pisma należy do Ciebie.
-""")
+st.caption("⚠️ **NOTA PRAWNA:** System wykorzystuje AI. Aplikacja nie świadczy pomocy prawnej. Weryfikacja treści należy do użytkownika.")
