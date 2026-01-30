@@ -1,228 +1,177 @@
 import streamlit as st
 from openai import OpenAI
+import stripe
 import datetime
-import os
+import time
 
-# --- KONFIGURACJA BIZNESOWA (TYMCZASOWA) ---
-# Na razie wstawiamy tu cokolwiek, np. Twoj email, dopóki nie masz Stripe.
-LINK_DO_PLATNOSCI = "https://google.com" 
-# To hasło, które podasz klientowi (możesz zmienić na inne)
-TAJNY_KOD = "KONTRA2026"
+# --- KONFIGURACJA BIZNESOWA ---
 
-# --- KONFIGURACJA BEZPIECZEŃSTWA (SECRETS) ---
+# 1. TU WKLEJ KLUCZ TAJNY ZE STRIPE (Secret Key - zaczyna się od sk_test_...)
+STRIPE_SECRET_KEY = "sk_test_51SvI3pF4cgtAkW4Kl7EU9vD3f9RInde6kLP11kB66aCBQNRZuWtdelOPMKjBqBczaeYbBQhRkLNs9kptZTlxYmoJ00auxm37XP" 
+
+# 2. TU WKLEJ LINK DO PŁATNOŚCI (Ten za 9.99 PLN)
+LINK_DO_PLATNOSCI = "https://buy.stripe.com/test_6oU3cv4Ee00Jfic9yq0VO00"
+
+# --- KONFIGURACJA API ---
 try:
     API_KEY = st.secrets["OPENAI_API_KEY"]
 except:
     API_KEY = ""
 
 client = OpenAI(api_key=API_KEY)
+stripe.api_key = STRIPE_SECRET_KEY
 
-# --- LOGIKA SYSTEMU (BACKEND) ---
+# --- FUNKCJA SPRAWDZAJĄCA PŁATNOŚĆ (BRAMKA) ---
+def sprawdz_czy_zaplacil(email_klienta):
+    # Zabezpieczenie przed pustym kluczem
+    if "sk_test" not in STRIPE_SECRET_KEY:
+        st.error("BŁĄD: Nie uzupełniono klucza Stripe w kodzie (linia 9).")
+        return False
+        
+    try:
+        # Pobieramy 20 ostatnich sesji płatności ze Stripe
+        # To pozwala znaleźć wpłatę nawet jak klient chwilę zwlekał
+        sessions = stripe.checkout.Session.list(limit=20)
+        
+        for session in sessions.data:
+            # Sprawdzamy transakcje:
+            # 1. Czy status to 'paid' (opłacone)
+            # 2. Czy email klienta pasuje do tego, co wpisał w formularzu
+            if session.customer_details and session.customer_details.email:
+                stripe_email = session.customer_details.email.lower().strip()
+                form_email = email_klienta.lower().strip()
+                
+                if stripe_email == form_email:
+                    if session.payment_status == 'paid':
+                        return True
+        return False
+    except Exception as e:
+        st.error(f"Błąd połączenia ze Stripe: {e}")
+        return False
+
+# --- GENERATOR AI ---
 def generuj_pelne_pismo(dane, strategia):
-    
     if strategia == "GWARANCJA: Naprawa (Do Serwisu Producenta)":
-        cel = "Zgłaszamy wadę z tytułu udzielonej GWARANCJI JAKOŚCI. Żądamy naprawy zgodnie z warunkami karty gwarancyjnej."
-        ton = "formalny"
+        cel = "Zgłaszamy wadę z tytułu udzielonej GWARANCJI JAKOŚCI. Żądamy naprawy."
         tytul = "ZGŁOSZENIE REKLAMACYJNE Z GWARANCJI"
-        podstawa = "oświadczenia gwarancyjnego (karty gwarancyjnej)"
-        
-    elif strategia == "RĘKOJMIA: Naprawa / Wymiana (Do Sprzedawcy)":
-        cel = "Żądamy doprowadzenia towaru do zgodności z umową poprzez WYMIANĘ na nowy lub NAPRAWĘ (Art. 43d ustawy o prawach konsumenta)."
-        ton = "stanowczy, ale rzeczowy"
-        tytul = "REKLAMACJA Z TYTUŁU NIEZGODNOŚCI TOWARU Z UMOWĄ"
-        podstawa = "ustawy o prawach konsumenta"
-        
+    elif strategia == "RĘKOJMIA: Naprawa / Wymiana":
+        cel = "Żądamy doprowadzenia towaru do zgodności z umową poprzez WYMIANĘ na nowy lub NAPRAWĘ."
+        tytul = "REKLAMACJA Z TYTUŁU RĘKOJMI"
     else: 
-        cel = "Odstępujemy od umowy i żądamy zwrotu wpłaconych środków z powodu wady istotnej (Art. 43e ustawy o prawach konsumenta)."
-        ton = "zimny, formalny i bezkompromisowy"
+        cel = "Odstępujemy od umowy i żądamy zwrotu wpłaconych środków (Wada istotna)."
         tytul = "OŚWIADCZENIE O ODSTĄPIENIU OD UMOWY"
-        podstawa = "ustawy o prawach konsumenta"
 
-    prompt_systemowy = f"""
-    Jesteś profesjonalnym prawnikiem. Twoim zadaniem jest napisanie pisma reklamacyjnego.
+    prompt = f"""
+    Jesteś profesjonalnym prawnikiem. Napisz skuteczne pismo reklamacyjne.
     
-    STRUKTURA DOKUMENTU:
-    1. Miejscowość i Data.
-    2. Dane Nadawcy.
-    3. Dane Adresata (Placeholder [DANE ADRESATA]).
-    4. Tytuł: {tytul}.
-    5. Treść:
-       - Powołaj się na {podstawa}.
-       - Opisz wadę profesjonalnym językiem.
-       - Sformułuj żądanie: {cel}.
-    6. Podpis.
-    7. Załączniki.
-
-    TON: {ton}.
+    DANE SPRAWY: {dane}
+    STRATEGIA: {tytul}
+    ŻĄDANIE KLIENTA: {cel}
+    
+    WYMAGANIA:
+    - Język: Prawniczy, stanowczy, konkretny.
+    - Format: Gotowy do druku (Miejscowość, Data, Nagłówki).
+    - Uzasadnienie: Powołaj się na odpowiednie przepisy (Kodeks Cywilny lub Ustawa o Prawach Konsumenta).
     """
     
-    nr_dowodu_tekst = dane['nr_dowodu'] if dane['nr_dowodu'] else "Inny dowód zakupu (w załączeniu)"
-
-    dane_tekstowe = f"""
-    MIEJSCOWOŚĆ I DATA: {dane['miasto']}, dnia {dane['dzisiejsza_data']}
-    
-    DANE NADAWCY:
-    Imię i Nazwisko: {dane['imie']} {dane['nazwisko']}
-    Adres zamieszkania: {dane['adres_pelny']}
-    Telefon: {dane['telefon']}
-    Email: {dane['email']}
-    
-    DANE O TOWARZE:
-    Przedmiot: {dane['przedmiot']}
-    Data zakupu: {dane['data_zakupu']}
-    Numer dowodu zakupu: {nr_dowodu_tekst}
-    
-    OPIS PROBLEMU: {dane['opis_wady']}
-    """
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[
-                {"role": "system", "content": prompt_systemowy},
-                {"role": "user", "content": dane_tekstowe}
-            ]
+            messages=[{"role": "system", "content": prompt}]
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Błąd połączenia: {e}"
+        return f"Błąd AI: {e}"
 
 # --- INTERFEJS GRAFICZNY (FRONTEND) ---
-st.set_page_config(page_title="KONTRA Pro", page_icon="⚖️")
+st.set_page_config(page_title="KONTRA - Pisma Prawne", page_icon="⚖️")
 
+# Nagłówek
 st.title("⚖️ System KONTRA")
-st.write("Profesjonalny generator pism reklamacyjnych.")
+st.markdown("Profesjonalny generator pism reklamacyjnych.")
 
-# 1. Dane Użytkownika
-with st.expander("1. Dane Nadawcy (Twoje)", expanded=True):
-    st.text_input("Data", value=str(datetime.date.today()), disabled=True)
+# Zmienna sesji (żeby pamiętał status płatności po odświeżeniu)
+if 'oplacone' not in st.session_state:
+    st.session_state['oplacone'] = False
 
+# 1. FORMULARZ DANYCH (Zawsze widoczny)
+with st.container():
+    st.info("KROK 1: Uzupełnij dane do pisma.")
+    
     col1, col2 = st.columns(2)
-    with col1:
+    with col1: 
         imie = st.text_input("Imię i Nazwisko")
-    with col2:
-        telefon = st.text_input("Numer telefonu")
+    with col2: 
+        # Email jest kluczowy - służy do weryfikacji płatności
+        email = st.text_input("Twój adres EMAIL (Ważne!)")
+        if email and "@" not in email:
+            st.warning("Podaj poprawny adres email.")
     
-    email = st.text_input("Adres Email")
+    przedmiot = st.text_input("Nazwa produktu / usługi", placeholder="np. Buty Nike Air Max, Laptop Dell...")
+    data_zakupu = st.date_input("Data zakupu")
+    opis_wady = st.text_area("Opis wady / usterki", placeholder="Opisz dokładnie co się stało...")
     
-    st.write("---")
-    st.write("Adres zamieszkania:")
-    
-    col_ulica, col_kod, col_miasto = st.columns([2, 1, 1.5]) 
-    
-    with col_ulica:
-        ulica = st.text_input("Ulica i numer", placeholder="ul. Długa 5/12")
-    with col_kod:
-        kod_pocztowy = st.text_input("Kod pocztowy", placeholder="00-000")
-    with col_miasto:
-        miasto = st.text_input("Miejscowość")
-
-# 2. Dane Przedmiotu
-with st.expander("2. Co reklamujemy?", expanded=True):
-    przedmiot = st.text_input("Nazwa przedmiotu", placeholder="np. Laptop Dell XPS 15")
-    
-    col3, col4 = st.columns(2)
-    with col3:
-        data_zakupu = st.date_input("Data zakupu towaru")
-    with col4:
-        nr_dowodu = st.text_input("Numer paragonu/faktury (jeśli posiadasz)")
-
-# 3. Opis Problemu
-with st.expander("3. Wybór Strategii i Opis Wady", expanded=True):
-    
-    with st.expander("ℹ️ PORADNIK: Co wybrać? (Kliknij tutaj)", expanded=False):
-        st.markdown("""
-        **1. RĘKOJMIA (Najsilniejsza opcja)**
-        * Pismo kierujesz do **SKLEPU**.
-        * **Naprawa/Wymiana:** Bezpieczna opcja, sklep musi usunąć wadę.
-        * **Zwrot Pieniędzy:** Opcja ostateczna, gdy wada jest istotna.
-        
-        **2. GWARANCJA (Opcja zapasowa)**
-        * Pismo kierujesz do **SERWISU PRODUCENTA**.
-        * Wybierz, gdy minęły 2 lata od zakupu lub sklep już nie istnieje.
-        """)
-
-    strategia = st.radio("Wybierz tryb reklamacji:", [
-        "RĘKOJMIA: Naprawa / Wymiana (Do Sprzedawcy)", 
-        "RĘKOJMIA: Zwrot Pieniędzy (Do Sprzedawcy)",
-        "GWARANCJA: Naprawa (Do Serwisu Producenta)"
+    strategia = st.radio("Czego oczekujesz?", [
+        "RĘKOJMIA: Naprawa / Wymiana (Zalecane)", 
+        "RĘKOJMIA: Zwrot Pieniędzy (Odstąpienie)", 
+        "GWARANCJA: Naprawa"
     ])
+
+st.markdown("---")
+
+# 2. SEKJA PŁATNOŚCI (Widoczna tylko jeśli NIE opłacono)
+if not st.session_state['oplacone']:
+    st.subheader("💳 KROK 2: Płatność i Pobranie")
+    st.write("Koszt wygenerowania profesjonalnego pisma: **9.99 PLN**")
     
-    if strategia == "GWARANCJA: Naprawa (Do Serwisu Producenta)":
-        st.info("Wybrano Gwarancję: Pismo zostanie przygotowane dla serwisu gwarancyjnego.")
-    elif strategia == "RĘKOJMIA: Naprawa / Wymiana (Do Sprzedawcy)":
-        st.success("Wybrano Rękojmię: Żądasz od sklepu naprawy lub nowego towaru.")
-    else:
-        st.warning("Wybrano Rękojmię (Odstąpienie): Żądasz od sklepu zwrotu gotówki.")
-
-    opis_wady = st.text_area("Opisz usterkę własnymi słowami:", height=100)
-
-# 4. Dowody
-with st.expander("4. Załączniki (Opcjonalne)", expanded=False):
-    plik_paragon = st.file_uploader("Zdjęcie paragonu", type=['png', 'jpg', 'jpeg'])
-    pliki_uszkodzen = st.file_uploader("Zdjęcia uszkodzeń", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-
-st.markdown("---")
-
-# --- SEKCJA PŁATNOŚCI (PAYWALL) ---
-st.subheader("💳 Finalizacja")
-
-col_info, col_pay = st.columns([2, 1])
-with col_info:
-    st.info("Aby wygenerować pismo, wymagany jest **Kod Dostępu**. \n\nWpisz kod, który otrzymałeś od administratora.")
-    kod_uzytkownika = st.text_input("Kod dostępu:", type="password", placeholder="Wpisz kod tutaj...")
-
-with col_pay:
-    # Tymczasowy przycisk, dopóki nie masz Stripe
-    st.write("Nie masz kodu?")
-    st.link_button("👉 ZAPYTAJ O KOD", LINK_DO_PLATNOSCI, type="secondary", use_container_width=True)
-
-st.markdown("---")
-
-# --- ZGODY PRAWNE ---
-zgoda_rodo = st.checkbox("✅ Akceptuję Regulamin i wyrażam zgodę na przetwarzanie danych.")
-
-# --- PRZYCISK GENEROWANIA ---
-if st.button("GENERUJ DOKUMENT PDF (PODGLĄD)", type="primary", use_container_width=True, disabled=not zgoda_rodo):
+    col_pay, col_check = st.columns(2)
     
-    # 1. SPRAWDZENIE KODU (Paywall Logic)
-    if kod_uzytkownika != TAJNY_KOD:
-        st.error("⛔ BŁĄD: Nieprawidłowy kod dostępu! Skontaktuj się z administratorem, aby uzyskać kod.")
-        
-    # 2. Reszta walidacji
-    elif not imie or not telefon or not ulica or not kod_pocztowy or not miasto:
-        st.error("❌ Uzupełnij wszystkie pola adresowe (Miejscowość, Ulica, Kod)!")
-    else:
-        pelny_adres_string = f"{ulica}, {kod_pocztowy} {miasto}"
-        dane_formularza = {
-            "miasto": miasto,
-            "dzisiejsza_data": str(datetime.date.today()),
-            "imie": imie,
-            "nazwisko": "", 
-            "adres_pelny": pelny_adres_string,
-            "telefon": telefon,
-            "email": email,
-            "przedmiot": przedmiot,
-            "data_zakupu": str(data_zakupu),
-            "nr_dowodu": nr_dowodu,
-            "opis_wady": opis_wady
-        }
-        
-        with st.spinner('Prawnik AI przygotowuje dokument...'):
-            wynik = generuj_pelne_pismo(dane_formularza, strategia)
-            st.success("✅ Kod poprawny! Dokument gotowy!")
+    with col_pay:
+        # Tworzymy inteligentny link - sam wpisze maila klienta w Stripe
+        if email and "@" in email:
+            smart_link = f"{LINK_DO_PLATNOSCI}?prefilled_email={email}"
+        else:
+            smart_link = LINK_DO_PLATNOSCI
             
-            st.subheader("1. Treść Pisma:")
-            st.text_area("Tekst do skopiowania:", value=wynik, height=500)
-            
-            st.subheader("2. Załączniki do druku:")
-            if plik_paragon: st.image(plik_paragon, caption="Dowód zakupu", width=300)
-            if pliki_uszkodzen:
-                cols = st.columns(len(pliki_uszkodzen))
-                for idx, plik in enumerate(pliki_uszkodzen):
-                    with cols[idx]: st.image(plik, caption=f"Foto {idx+1}", use_container_width=True)
+        st.link_button("👉 1. ZAPŁAĆ (9.99 PLN)", smart_link, type="primary", use_container_width=True)
+    
+    with col_check:
+        if st.button("🔄 2. SPRAWDŹ WPŁATĘ", type="secondary", use_container_width=True):
+            if not email or "@" not in email:
+                st.error("❌ Najpierw wpisz swój adres email w formularzu powyżej!")
+            elif "sk_test" not in STRIPE_SECRET_KEY:
+                st.error("❌ BŁĄD KONFIGURACJI: Właściciel strony nie ustawił klucza Stripe.")
+            else:
+                with st.spinner("Łączę z systemem bankowym..."):
+                    time.sleep(1) # Małe opóźnienie dla efektu
+                    czy_zaplacil = sprawdz_czy_zaplacil(email)
+                    
+                    if czy_zaplacil:
+                        st.session_state['oplacone'] = True
+                        st.balloons()
+                        st.success("✅ Płatność potwierdzona! Generuję dokument...")
+                        st.rerun() # Przeładowanie strony, żeby pokazać wynik
+                    else:
+                        st.error("⛔ Nie znaleziono wpłaty dla tego adresu email.")
+                        st.info("Upewnij się, że w płatności podałeś ten sam email co w formularzu.")
 
-            st.info("ℹ️ Instrukcja: Skopiuj treść pisma do Worda, a zdjęcia wydrukuj i dołącz do koperty.")
+# 3. WYNIK (Widoczny TYLKO po opłaceniu)
+if st.session_state['oplacone']:
+    st.success("✅ DOKUMENT OPŁACONY I GOTOWY!")
+    
+    dane_calosc = f"Klient: {imie}, Email: {email}, Przedmiot: {przedmiot}, Data: {data_zakupu}, Opis wady: {opis_wady}"
+    
+    with st.spinner("Sztuczna Inteligencja pisze Twoje pismo..."):
+        # Generowanie pisma
+        gotowe_pismo = generuj_pelne_pismo(dane_calosc, strategia)
+        
+    st.subheader("📄 Twoje Pismo:")
+    st.text_area("Skopiuj treść i wklej do Worda/Emaila:", value=gotowe_pismo, height=600)
+    
+    st.markdown("---")
+    st.write("Chcesz wygenerować kolejne pismo dla innej sprawy?")
+    if st.button("Nowa Sprawa (Wymaga nowej płatności)"):
+        st.session_state['oplacone'] = False
+        st.rerun()
 
-st.markdown("---")
-st.caption("⚠️ **NOTA PRAWNA:** System wykorzystuje AI. Aplikacja nie świadczy pomocy prawnej. Weryfikacja treści należy do użytkownika.")
+st.caption("Nota prawna: Wygenerowane pismo jest wzorem stworzonym przez AI. Sprawdź je przed wysłaniem.")
