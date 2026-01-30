@@ -43,26 +43,29 @@ def sprawdz_czy_zaplacil(email_klienta):
 
 # --- GENERATOR AI ---
 def generuj_pelne_pismo(dane, strategia):
-    if strategia == "GWARANCJA: Naprawa (Do Serwisu Producenta)":
+    if "GWARANCJA" in strategia:
         tytul = "ZGŁOSZENIE REKLAMACYJNE Z GWARANCJI"
-        podstawa = "oświadczenia gwarancyjnego"
-    elif strategia == "RĘKOJMIA: Naprawa / Wymiana":
-        tytul = "REKLAMACJA Z TYTUŁU RĘKOJMI (NAPRAWA/WYMIANA)"
-        podstawa = "ustawy o prawach konsumenta (niezgodność towaru z umową)"
-    else: 
+        podstawa = "oświadczenia gwarancyjnego (karty gwarancyjnej)"
+    elif "Odstąpienie" in strategia: 
         tytul = "OŚWIADCZENIE O ODSTĄPIENIU OD UMOWY"
-        podstawa = "ustawy o prawach konsumenta (wada istotna)"
+        podstawa = "art. 43e ust. 1 ustawy o prawach konsumenta (wada istotna)"
+    else: 
+        tytul = "REKLAMACJA Z TYTUŁU RĘKOJMI (NIEZGODNOŚĆ TOWARU)"
+        podstawa = "art. 43d ustawy o prawach konsumenta"
 
     prompt = f"""
-    Jesteś prawnikiem. Napisz pismo: {tytul}.
+    Jesteś profesjonalnym prawnikiem. Napisz skuteczne pismo reklamacyjne.
     
     DANE NADAWCY: {dane['nadawca']}
     ADRES: {dane['adres']}
     PRZEDMIOT: {dane['przedmiot']} (Data zakupu: {dane['data']})
     OPIS WADY: {dane['wada']}
+    STRATEGIA: {strategia}
     
-    Treść ma być profesjonalna, powołaj się na {podstawa}.
-    Uwzględnij miejsce na podpis.
+    WYTYCZNE:
+    - Styl: Formalny, stanowczy, prawniczy.
+    - Podstawa prawna: Powołaj się na {podstawa}.
+    - Format: Gotowy do druku (Miejscowość, Data, Nagłówki).
     """
     
     try:
@@ -78,7 +81,7 @@ def generuj_pelne_pismo(dane, strategia):
 st.set_page_config(page_title="KONTRA Pro", page_icon="⚖️")
 
 st.title("⚖️ System KONTRA")
-st.markdown("Profesjonalny generator pism reklamacyjnych.")
+st.markdown("Profesjonalny generator pism reklamacyjnych z analizą prawną.")
 
 # Zmienna sesji (status płatności)
 if 'oplacone' not in st.session_state:
@@ -96,32 +99,56 @@ with st.expander("1. Dane Nadawcy (Wymagane)", expanded=True):
     
     st.write("Adres (do nagłówka pisma):")
     col_ulica, col_kod, col_miasto = st.columns([2, 1, 1])
-    with col_ulica: ulica = st.text_input("Ulica i numer")
-    with col_kod: kod = st.text_input("Kod pocztowy")
+    with col_ulica: ulica = st.text_input("Ulica i numer", placeholder="np. ul. Marszałkowska 1/5")
+    with col_kod: kod = st.text_input("Kod pocztowy", placeholder="00-000")
     with col_miasto: miasto = st.text_input("Miejscowość")
 
 # ==========================================
-# SEKJA 2: DANE PRODUKTU
+# SEKJA 2: PORADNIK + DANE PRODUKTU
 # ==========================================
-with st.expander("2. Co reklamujemy?", expanded=True):
-    przedmiot = st.text_input("Nazwa produktu/usługi")
+with st.expander("2. Strategia i Opis Problemu", expanded=True):
+    
+    # --- PRZYWRÓCONY MODUŁ EDUKACYJNY ---
+    with st.expander("ℹ️ PORADNIK PRAWNY: Co wybrać? (Kliknij, aby rozwinąć)", expanded=False):
+        st.markdown("""
+        **1. RĘKOJMIA (Najsilniejsza opcja)**
+        * Pismo kierujesz do **SKLEPU**.
+        * Prawo chroni Cię przez 2 lata.
+        * To sklep musi udowodnić, że wada nie istniała.
+        
+        **2. GWARANCJA (Opcja dodatkowa)**
+        * Pismo kierujesz do **PRODUCENTA**.
+        * Warunki ustala gwarant (często mniej korzystne niż rękojmia).
+        * Wybierz tylko, gdy minęła rękojmia lub sklep upadł.
+        """)
+
+    przedmiot = st.text_input("Nazwa produktu/usługi", placeholder="np. Buty Nike, Laptop Dell, Remont łazienki")
     col_d1, col_d2 = st.columns(2)
     with col_d1: data_zakupu = st.date_input("Data zakupu")
-    with col_d2: nr_dowodu = st.text_input("Nr paragonu/zamówienia (opcjonalnie)")
+    with col_d2: nr_dowodu = st.text_input("Nr paragonu (opcjonalnie)")
     
-    opis_wady = st.text_area("Opis wady (Bądź dokładny)", height=100)
-    
+    # Wybór z wyjaśnieniami
     strategia = st.radio("Czego żądamy?", [
-        "RĘKOJMIA: Naprawa / Wymiana", 
-        "RĘKOJMIA: Zwrot Pieniędzy", 
-        "GWARANCJA: Naprawa"
+        "RĘKOJMIA: Naprawa / Wymiana (Zalecane na start)", 
+        "RĘKOJMIA: Zwrot Pieniędzy (Odstąpienie od umowy)", 
+        "GWARANCJA: Naprawa (Serwis Producenta)"
     ])
+    
+    # Dynamiczne podpowiedzi (Feedback dla usera)
+    if "Naprawa / Wymiana" in strategia:
+        st.info("✅ Dobry wybór. W pierwszej kolejności żądamy przywrócenia towaru do zgodności z umową.")
+    elif "Zwrot Pieniędzy" in strategia:
+        st.warning("⚠️ Uwaga: Odstąpienie od umowy jest skuteczne od razu tylko przy WADZIE ISTOTNEJ lub jeśli sklep już raz naprawiał towar.")
+    else:
+        st.info("ℹ️ Wybrano Gwarancję. Pamiętaj, że warunki zależą od karty gwarancyjnej, a nie ustawy.")
+
+    opis_wady = st.text_area("Opis wady", height=100, placeholder="Opisz dokładnie usterkę. Np. 'Po 2 miesiącach użytkowania podeszwa w prawym bucie odkleiła się na długości 5cm. Towar był użytkowany zgodnie z przeznaczeniem.'")
 
 # ==========================================
-# SEKJA 3: ZAŁĄCZNIKI (TO CZEGO BRAKOWAŁO)
+# SEKJA 3: ZAŁĄCZNIKI
 # ==========================================
-with st.expander("3. Załączniki (Paragon / Zdjęcia)", expanded=False):
-    st.info("Dodaj zdjęcia teraz. Zostaną one wyświetlone pod gotowym pismem, abyś mógł je wydrukować.")
+with st.expander("3. Załączniki (Zdjęcia/Paragon)", expanded=False):
+    st.info("Dodaj zdjęcia teraz. Zostaną one dołączone do podglądu, abyś mógł je wydrukować razem z pismem.")
     plik_paragon = st.file_uploader("Zdjęcie Paragonu", type=['png', 'jpg', 'jpeg', 'pdf'])
     pliki_uszkodzen = st.file_uploader("Zdjęcia Uszkodzeń", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
@@ -186,10 +213,10 @@ if st.session_state['oplacone']:
     st.subheader("📄 Treść Pisma")
     st.text_area("Skopiuj do Worda/Emaila:", value=pismo, height=600)
     
-    # Wyświetlamy załączniki, żeby klient miał wszystko w jednym miejscu
+    # Wyświetlamy załączniki
     if plik_paragon or pliki_uszkodzen:
         st.divider()
-        st.subheader("📎 Twoje Załączniki (Do druku)")
+        st.subheader("📎 Załączniki (Do druku)")
         if plik_paragon:
             st.image(plik_paragon, caption="Dowód Zakupu", width=300)
         if pliki_uszkodzen:
