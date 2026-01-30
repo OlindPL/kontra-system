@@ -3,10 +3,10 @@ from openai import OpenAI
 import datetime
 import os
 
-# --- KONFIGURACJA BIZNESOWA ---
-# Tu wpisz swój link do płatności ze Stripe (na razie testowy)
-LINK_DO_PLATNOSCI = "https://buy.stripe.com/test_..." 
-# Kod, który klient otrzyma po wpłacie (możesz go zmieniać)
+# --- KONFIGURACJA BIZNESOWA (TYMCZASOWA) ---
+# Na razie wstawiamy tu cokolwiek, np. Twoj email, dopóki nie masz Stripe.
+LINK_DO_PLATNOSCI = "https://google.com" 
+# To hasło, które podasz klientowi (możesz zmienić na inne)
 TAJNY_KOD = "KONTRA2026"
 
 # --- KONFIGURACJA BEZPIECZEŃSTWA (SECRETS) ---
@@ -165,16 +165,17 @@ with st.expander("4. Załączniki (Opcjonalne)", expanded=False):
 st.markdown("---")
 
 # --- SEKCJA PŁATNOŚCI (PAYWALL) ---
-st.subheader("💳 Finalizacja i Płatność")
+st.subheader("💳 Finalizacja")
 
 col_info, col_pay = st.columns([2, 1])
 with col_info:
-    st.info("Aby wygenerować pismo, wymagany jest **Kod Dostępu**. \n\nOtrzymasz go natychmiast po opłaceniu usługi (BLIK / Przelew).")
-    kod_uzytkownika = st.text_input("Wpisz otrzymany kod dostępu:", type="password", placeholder="Wpisz kod tutaj...")
+    st.info("Aby wygenerować pismo, wymagany jest **Kod Dostępu**. \n\nWpisz kod, który otrzymałeś od administratora.")
+    kod_uzytkownika = st.text_input("Kod dostępu:", type="password", placeholder="Wpisz kod tutaj...")
 
 with col_pay:
-    st.write("Koszt usługi: **29.00 PLN**")
-    st.link_button("👉 KUP KOD (BLIK)", LINK_DO_PLATNOSCI, type="primary", use_container_width=True)
+    # Tymczasowy przycisk, dopóki nie masz Stripe
+    st.write("Nie masz kodu?")
+    st.link_button("👉 ZAPYTAJ O KOD", LINK_DO_PLATNOSCI, type="secondary", use_container_width=True)
 
 st.markdown("---")
 
@@ -184,9 +185,11 @@ zgoda_rodo = st.checkbox("✅ Akceptuję Regulamin i wyrażam zgodę na przetwar
 # --- PRZYCISK GENEROWANIA ---
 if st.button("GENERUJ DOKUMENT PDF (PODGLĄD)", type="primary", use_container_width=True, disabled=not zgoda_rodo):
     
-    # 1. SPRAWDZENIE KODU
+    # 1. SPRAWDZENIE KODU (Paywall Logic)
     if kod_uzytkownika != TAJNY_KOD:
-        st.error("⛔ BŁĄD: Nieprawidłowy kod dostępu! Musisz kupić kod, aby wygenerować pismo.")
+        st.error("⛔ BŁĄD: Nieprawidłowy kod dostępu! Skontaktuj się z administratorem, aby uzyskać kod.")
+        
+    # 2. Reszta walidacji
     elif not imie or not telefon or not ulica or not kod_pocztowy or not miasto:
         st.error("❌ Uzupełnij wszystkie pola adresowe (Miejscowość, Ulica, Kod)!")
     else:
